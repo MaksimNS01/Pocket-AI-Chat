@@ -43,7 +43,7 @@ class AppStyles:
         "cursor_color": ft.Colors.WHITE,     # Цвет курсора ввода
         "content_padding": 10,               # Внутренние отступы текста
         "border_radius": 8,                  # Радиус скругления углов
-        "hint_text": "Введите сообщение здесь...",  # Текст-подсказка в пустом поле
+        #"hint_text": "Введите сообщение здесь...",  # Текст-подсказка в пустом поле
         "shift_enter": True,                 # Включение отправки по Shift+Enter
     }
 
@@ -195,3 +195,20 @@ class AppStyles:
         page.window.width = 600              # Фиксированная ширина окна
         page.window.height = 800             # Фиксированная высота окна
         page.window.resizable = False        # Запрет изменения размера пользователем
+
+    # Добавляем стили для окна аутентификации
+    AUTH_CONTAINER = {
+        "width": 400,
+        "height": 500,
+        "bgcolor": ft.colors.GREY_900,
+        "border_radius": 15,
+        "padding": 30,
+        "alignment": ft.alignment.center
+    }
+
+    HEADING_TEXT = {
+        "size": 24,
+        "weight": ft.FontWeight.BOLD,
+        "color": ft.colors.WHITE,
+        "text_align": ft.TextAlign.CENTER
+    }

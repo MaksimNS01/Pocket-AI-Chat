@@ -15,7 +15,7 @@ class OpenRouterClient:
     языковым моделям (GPT, Claude и др.) через единый API интерфейс.
     """
     
-    def __init__(self):
+    def __init__(self, api_key=None):
         """
         Инициализация клиента OpenRouter.
         
@@ -32,7 +32,9 @@ class OpenRouterClient:
         self.logger = AppLogger()
         
         # Получение необходимых параметров из переменных окружения
-        self.api_key = os.getenv("OPENROUTER_API_KEY")  # API ключ для авторизации
+        self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")  # API ключ для авторизации
+        if not self.api_key:
+            raise ValueError("API ключ OpenRouter не указан")
         self.base_url = os.getenv("BASE_URL")          # Базовый URL API
         
         # Проверка наличия API ключа
@@ -147,30 +149,38 @@ class OpenRouterClient:
             # Возврат сообщения об ошибке в формате ответа API
             return {"error": str(e)}       
 
-    def get_balance(self):
+    def get_balance(self) -> float:
         """
-        Получение текущего баланса аккаунта.
+        Получение баланса аккаунта OpenRouter
         
         Returns:
-            str: Строка с балансом в формате '$X.XX' или 'Ошибка' при неудаче
+            float: Текущий баланс в долларах
         """
         try:
-            # Запрос баланса через API
+            import requests
             response = requests.get(
-                f"{self.base_url}/credits",  # Эндпоинт для проверки баланса
-                headers=self.headers         # Заголовки с авторизацией
+                "https://openrouter.ai/api/v1/auth/key",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=10
             )
-            # Получение данных из ответа
-            data = response.json()
-            if data:
-                data = data.get('data')
-                # Вычисление доступного баланса (всего кредитов минус использовано)
-                return f"${(data.get('total_credits', 0)-data.get('total_usage', 0)):.2f}"
-            return "Ошибка"
+            
+            if response.status_code == 200:
+                data = response.json()
+                credits = data.get('data', {}).get('credits', 0)
+                # Преобразуем в число, если это строка
+                if isinstance(credits, str):
+                    try:
+                        return float(credits)
+                    except ValueError:
+                        return 0.0
+                return float(credits)
+            else:
+                error_msg = f"Ошибка проверки баланса: {response.status_code}"
+                if response.text:
+                    error_msg += f" - {response.text}"
+                raise Exception(error_msg)
+                
         except Exception as e:
-            # Формирование сообщения об ошибке
-            error_msg = f"API request failed: {str(e)}"
-            # Логирование ошибки с полным стектрейсом
-            self.logger.error(error_msg, exc_info=True)
-            # Возврат сообщения об ошибке
-            return "Ошибка"
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Ошибка получения баланса: {e}")
+            raise Exception(f"Не удалось проверить баланс: {str(e)}")

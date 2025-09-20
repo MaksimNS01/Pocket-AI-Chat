@@ -1,14 +1,15 @@
-# main.py (обновленная версия)
+# main.py (исправленная версия)
 
-# Импорт необходимых библиотек и модулей
 import flet as ft
 from api.openrouter import OpenRouterClient
 from ui.styles import AppStyles
 from ui.components import MessageBubble, ModelSelector
+from ui.auth_components import AuthWindow  # Добавляем импорт
 from utils.cache import ChatCache
 from utils.logger import AppLogger
 from utils.analytics import Analytics
 from utils.monitor import PerformanceMonitor
+from utils.auth import AuthManager
 import asyncio
 import time
 import json
@@ -23,33 +24,65 @@ class ChatApp:
         """
         Инициализация основных компонентов приложения.
         """
-        # Инициализация основных компонентов
-        self.api_client = OpenRouterClient()
+        self.auth_manager = AuthManager()
+        self.api_client = None
+        self.cache = None
+        self.logger = None
+        self.analytics = None
+        self.monitor = None
+        
+        # Флаг аутентификации
+        self.is_authenticated = False
+        
+        # Создание директории для экспорта
+        self.exports_dir = "exports"
+        os.makedirs(self.exports_dir, exist_ok=True)
+        
+        self.background_tasks = set()
+    
+    async def init_after_auth(self, api_key: str):
+        """Инициализация компонентов после успешной аутентификации"""
+        self.api_client = OpenRouterClient(api_key=api_key)  # Явно передаем api_key
         self.cache = ChatCache()
         self.logger = AppLogger()
         self.analytics = Analytics(self.cache)
         self.monitor = PerformanceMonitor()
-        
-        # Устанавливаем ссылку на приложение в монитор
         self.monitor.set_chat_app(self)
-
-        # Создание компонента для отображения баланса API
+        
+        self.is_authenticated = True
+        
+        # Создание компонента для отображения баланса
         self.balance_text = ft.Text(
             "Баланс: Загрузка...",
             **AppStyles.BALANCE_TEXT
         )
         self.update_balance()
-
-        # Создание директории для экспорта истории чата
-        self.exports_dir = "exports"
-        os.makedirs(self.exports_dir, exist_ok=True)
+    
+    def show_auth_window(self, page: ft.Page):
+        """Показать окно аутентификации"""
+        async def on_auth_success(api_key):
+            # Запускаем инициализацию после аутентификации
+            await self.handle_auth_success(page, api_key)
         
-        # Для асинхронных задач
-        self.background_tasks = set()
+        def on_reset_requested():
+            self.auth_manager.clear_credentials()
+            self.show_auth_window(page)
         
+        auth_window = AuthWindow(on_auth_success, on_reset_requested)
+        auth_window.show(page)
+    
+    async def handle_auth_success(self, page: ft.Page, api_key: str):
+        """Обработка успешной аутентификации"""
+        await self.init_after_auth(api_key)
+        # Немедленно показываем основной интерфейс
+        await self.main_ui(page)
+    
     def load_chat_history(self):
         """Загрузка истории чата из кэша."""
         try:
+            if not self.cache:
+                return
+                
             history = self.cache.get_chat_history()
             for msg in reversed(history):
                 _, model, user_message, ai_response, timestamp, tokens = msg
@@ -64,45 +97,36 @@ class ChatApp:
                     )
                 ])
         except Exception as e:
-            self.logger.error(f"Ошибка загрузки истории чата: {e}")
+            if self.logger:
+                self.logger.error(f"Ошибка загрузки истории чата: {e}")
 
     def update_balance(self):
         """
         Обновление отображения баланса API в интерфейсе.
         """
         try:
+            if not self.api_client:
+                return
+                
             balance = self.api_client.get_balance()
             self.balance_text.value = f"Баланс: {balance}"
             self.balance_text.color = ft.Colors.GREEN_400
         except Exception as e:
             self.balance_text.value = "Баланс: н/д"
             self.balance_text.color = ft.Colors.RED_400
-            self.logger.error(f"Ошибка обновления баланса: {e}")
-
-    async def start_monitoring(self, page: ft.Page):
-        """
-        Запуск асинхронного мониторинга в фоне.
-        """
-        try:
-            await self.monitor.monitor_loop(self.logger, interval=300)  # Проверяем каждые 5 минут
-        except Exception as e:
-            self.logger.error(f"Monitoring task error: {e}")
+            if self.logger:
+                self.logger.error(f"Ошибка обновления баланса: {e}")
 
     async def monitoring_background_task(self):
         """
         Фоновая задача мониторинга.
         """
         try:
-            await self.monitor.monitor_loop(self.logger, interval=300)  # Проверяем каждые 5 минут
+            await self.monitor.monitor_loop(self.logger, interval=300)
         except Exception as e:
-            self.logger.error(f"Monitoring task error: {e}")
+            if self.logger:
+                self.logger.error(f"Monitoring task error: {e}")
 
-    async def start_monitoring_after_init(self, page: ft.Page):
-        """
-        Асинхронный запуск мониторинга после инициализации страницы.
-        """
-        await self.monitoring_background_task()
-    
     def main(self, page: ft.Page):
         """
         Основная функция инициализации интерфейса приложения.
@@ -113,11 +137,23 @@ class ChatApp:
 
         AppStyles.set_window_size(page)
 
+        # Проверяем аутентификацию
+        stored_credentials = self.auth_manager.get_credentials()
+        if stored_credentials:
+            # Показываем окно аутентификации с запросом PIN
+            self.show_auth_window(page)
+        else:
+            # Первый вход - запрашиваем API ключ
+            self.show_auth_window(page)
+
+    async def main_ui(self, page: ft.Page):
+        """Основной UI после аутентификации"""
         # Инициализация выпадающего списка для выбора модели AI
         models = self.api_client.available_models
         self.model_dropdown = ModelSelector(models)
         self.model_dropdown.value = models[0] if models else None
 
+        # Создаем обработчик отправки сообщения как метод класса
         async def send_message_click(e):
             """
             Асинхронная функция отправки сообщения.
@@ -355,7 +391,7 @@ class ChatApp:
         )
 
         send_button = ft.ElevatedButton(
-            on_click=send_message_click,
+            on_click=send_message_click,  # Теперь эта функция определена
             **AppStyles.SEND_BUTTON
         )
 
@@ -414,6 +450,7 @@ class ChatApp:
         )
 
         # Добавление основной колонки на страницу
+        page.clean()
         page.add(self.main_column)
         
         # Запуск монитора
