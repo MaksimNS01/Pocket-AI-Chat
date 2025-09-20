@@ -2,7 +2,7 @@
 import requests  # Библиотека для выполнения HTTP-запросов к API
 import os       # Библиотека для работы с операционной системой и переменными окружения
 from dotenv import load_dotenv  # Библиотека для загрузки переменных окружения из .env файла
-from utils.logger import AppLogger  # Импорт собственного логгера для отслеживания работы
+from utils.logger import AppLogger  # Импорт собственного логгера для отслеживания работы (будет рассмотрен в следующей части урока)
 
 # Загрузка переменных окружения из .env файла при импорте модуля
 load_dotenv()
@@ -78,7 +78,7 @@ class OpenRouterClient:
             models_data = response.json()
             
             # Логирование успешного получения списка моделей
-            self.logger.info(f"Retrieved {len(models_data["data"])} models")
+            self.logger.info(f'Retrieved {len(models_data["data"])} models')
             
             # Преобразование данных в нужный формат
             return [

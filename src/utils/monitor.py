@@ -3,6 +3,9 @@ import psutil      # Библиотека для мониторинга сист
 import time        # Библиотека для работы с временными метками и измерения интервалов
 from datetime import datetime  # Библиотека для работы с датой и временем
 import threading   # Библиотека для работы с потоками
+import asyncio     # Для асинхронных уведомлений
+from utils.notifications import send_low_balance_alert  # Наш модуль уведомлений
+
 
 class PerformanceMonitor:
     """
@@ -14,6 +17,7 @@ class PerformanceMonitor:
     - Количество активных потоков
     - Время работы приложения
     - Общее состояние системы
+    - Баланс системы
     """
     
     def __init__(self):
@@ -36,7 +40,16 @@ class PerformanceMonitor:
             'memory_percent': 75.0,  # Максимально допустимый процент использования памяти
             'thread_count': 50      # Максимально допустимое количество потоков
         }
+        
+        # Добавляем отслеживание уведомлений
+        self.last_balance_notification = None
+        self.notification_cooldown = 3600  # 1 час между уведомлениями
+        self.chat_app = None  # Ссылка на основное приложение
 
+    def set_chat_app(self, chat_app):
+        """Установка ссылки на основное приложение для получения баланса"""
+        self.chat_app = chat_app
+    
     def get_metrics(self) -> dict:
         """
         Получение текущих метрик производительности.
@@ -181,3 +194,83 @@ class PerformanceMonitor:
         if health['status'] == 'warning':
             for warning in health['warnings']:
                 logger.warning(f"Performance warning: {warning}")
+                
+    def get_current_balance(self) -> float:
+        """
+        Получение текущего баланса через основное приложение.
+        """
+        if self.chat_app and self.chat_app.api_client:
+            try:
+                balance = self.chat_app.api_client.get_balance()
+                # Если баланс возвращается как строка с префиксом, извлекаем число
+                if isinstance(balance, str):
+                    # Убираем "Баланс: " и другие префиксы
+                    balance_str = balance.replace("Баланс: ", "").replace("$", "").strip()
+                    return float(balance_str)
+                return float(balance)
+            except Exception as e:
+                logging.error(f"Error getting balance from API client: {e}")
+                return 0.0
+        return 0.0
+
+    async def check_balance_and_notify(self, logger) -> None:
+        """
+        Проверка баланса и отправка уведомлений при низком уровне.
+        """
+        try:
+            current_balance = self.get_current_balance()
+            balance_threshold = 1.0  # Порог для уведомления (настрой по необходимости)
+            
+            logger.info(f"Current API balance: {current_balance:.4f}")
+            
+            # Проверяем, нужно ли отправлять уведомление
+            if current_balance < balance_threshold:
+                # Проверяем cooldown (чтобы не спамить)
+                current_time = time.time()
+                should_notify = True
+                
+                if self.last_balance_notification:
+                    time_since_last = current_time - self.last_balance_notification
+                    if time_since_last < self.notification_cooldown:
+                        should_notify = False
+                        logger.info("Balance notification cooldown active")
+                
+                if should_notify:
+                    logger.warning(f"Low API balance detected: {current_balance:.4f}")
+                    await send_low_balance_alert(current_balance, balance_threshold)
+                    self.last_balance_notification = current_time
+                    logger.info("Balance notification sent")
+                else:
+                    logger.info("Balance notification skipped (cooldown)")
+            else:
+                logger.info("API balance is sufficient")
+                
+        except Exception as e:
+            logger.error(f"Error checking balance: {e}")
+
+    async def monitor_loop(self, logger, interval: int = 300) -> None:
+        """
+        Основной цикл мониторинга.
+        """
+        logger.info("Starting performance and balance monitoring loop")
+        
+        while True:
+            try:
+                # Существующий мониторинг производительности
+                self.log_metrics(logger)
+                health = self.check_health()
+                
+                if health['status'] == 'warning':
+                    for warning in health['warnings']:
+                        logger.warning(f"Performance warning: {warning}")
+                
+                # Новый мониторинг баланса
+                if self.chat_app:  # Только если есть ссылка на приложение
+                    await self.check_balance_and_notify(logger)
+                
+                # Ждем до следующей проверки
+                await asyncio.sleep(interval)
+                
+            except Exception as e:
+                logger.error(f"Error in monitoring loop: {e}")
+                await asyncio.sleep(interval)

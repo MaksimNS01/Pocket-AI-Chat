@@ -1,6 +1,6 @@
 # Импорт необходимых библиотек и модулей
 import flet as ft                  # Фреймворк для создания пользовательского интерфейса
-from ui.styles import AppStyles    # Импорт стилей приложения
+from ui.styles import AppStyles    # Импорт стилей приложения (будет рассмотрен в следующей части урока)
 import asyncio                     # Библиотека для асинхронного программирования
 
 class MessageBubble(ft.Container):

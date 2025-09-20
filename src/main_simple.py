@@ -66,7 +66,7 @@ class SimpleChatApp:
             response = await loop.run_in_executor(
                 None,
                 lambda: self.api_client.send_message(
-                    user_message, 
+                    user_message,
                     "openai/gpt-3.5-turbo"
                 )
             )
